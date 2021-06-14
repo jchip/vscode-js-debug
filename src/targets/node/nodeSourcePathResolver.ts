@@ -9,7 +9,7 @@ import { ILogger } from '../../common/logging';
 import { fixDriveLetterAndSlashes, properResolve } from '../../common/pathUtils';
 import { SourceMap } from '../../common/sourceMaps/sourceMap';
 import {
-  defaultPathMappingResolver,
+  defaultSyncPathMappingResolver,
   getComputedSourceRoot,
   getFullSourceEntry,
   moduleAwarePathMappingResolver,
@@ -72,30 +72,6 @@ export class NodeSourcePathResolver extends SourcePathResolverBase<IOptions> {
   }
 
   /**
-   * map remote path to local path and apply the pathMapping option
-   *
-   * @param scriptPath remote path
-   * @returns mapped path
-   */
-  private async rebaseRemoteWithPathMapping(scriptPath: string): Promise<string> {
-    const mapped = this.rebaseRemoteToLocal(scriptPath);
-
-    if (this.hasPathMapping) {
-      const mapped2 = await defaultPathMappingResolver(
-        mapped,
-        this.options.pathMapping,
-        this.logger,
-      );
-
-      if (mapped2 && (await this.fsUtils.exists(mapped2))) {
-        return mapped2;
-      }
-    }
-
-    return mapped;
-  }
-
-  /**
    * @override
    */
   public async urlToAbsolutePath({ url, map }: IUrlResolution): Promise<string | undefined> {
@@ -119,7 +95,7 @@ export class NodeSourcePathResolver extends SourcePathResolverBase<IOptions> {
 
     const absolutePath = urlUtils.fileUrlToAbsolutePath(url);
     if (absolutePath) {
-      return await this.rebaseRemoteWithPathMapping(absolutePath);
+      return this.rebaseRemoteToLocal(absolutePath);
     }
 
     // It's possible the source might be an HTTP if using the `sourceURL`
@@ -141,7 +117,7 @@ export class NodeSourcePathResolver extends SourcePathResolverBase<IOptions> {
     }
 
     const withBase = properResolve(this.options.basePath ?? '', url);
-    return await this.rebaseRemoteWithPathMapping(withBase);
+    return this.rebaseRemoteToLocal(withBase);
   }
 
   /**
@@ -149,6 +125,19 @@ export class NodeSourcePathResolver extends SourcePathResolverBase<IOptions> {
    */
   protected absolutePathToUrl(absolutePath: string) {
     return urlUtils.absolutePathToFileUrl(this.rebaseLocalToRemote(path.normalize(absolutePath)));
+  }
+
+  /**
+   * Apply path mapping to a file
+   * @param scriptPath - path to file
+   * @returns path to script
+   */
+  protected pathMapFile(scriptPath: string): string {
+    const mapped =
+      this.hasPathMapping &&
+      defaultSyncPathMappingResolver(scriptPath, this.options.pathMapping, this.logger);
+
+    return mapped || scriptPath;
   }
 
   /**
@@ -163,15 +152,17 @@ export class NodeSourcePathResolver extends SourcePathResolverBase<IOptions> {
     }
 
     if (urlUtils.comparePathsWithoutCasing(realPath, absolutePath)) {
-      return super.absolutePathToUrlRegexp(absolutePath);
+      return super.absolutePathToUrlRegexp(this.pathMapFile(absolutePath));
     }
 
     this.linkedBp?.warn();
 
+    const realPathRegex = realPath
+      ? '|' + urlUtils.urlToRegex(this.absolutePathToUrl(realPath))
+      : '';
+
     return (
-      urlUtils.urlToRegex(this.absolutePathToUrl(absolutePath)) +
-      '|' +
-      urlUtils.urlToRegex(this.absolutePathToUrl(realPath))
+      urlUtils.urlToRegex(this.absolutePathToUrl(this.pathMapFile(absolutePath))) + realPathRegex
     );
   }
 
@@ -187,7 +178,7 @@ export class NodeSourcePathResolver extends SourcePathResolverBase<IOptions> {
     }
 
     if (urlUtils.isFileUrl(url)) {
-      return urlUtils.fileUrlToAbsolutePath(url);
+      return this.pathMapFile(urlUtils.fileUrlToAbsolutePath(url));
     }
 
     if (!path.isAbsolute(url) && this.options.basePath) {
@@ -205,6 +196,7 @@ export class NodeSourcePathResolver extends SourcePathResolverBase<IOptions> {
       );
     }
 
-    return await this.rebaseRemoteWithPathMapping(url);
+    const localPath = this.rebaseRemoteToLocal(url);
+    return this.pathMapFile(localPath);
   }
 }

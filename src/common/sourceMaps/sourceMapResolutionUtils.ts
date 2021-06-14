@@ -102,11 +102,11 @@ export type PathMappingResolver = (
  * Default path mapping resolver. Applies the mapping by running a key
  * check in memory.
  */
-export const defaultPathMappingResolver: PathMappingResolver = async (
-  scriptUrlPath,
-  pathMapping,
-  logger,
-) => {
+export const defaultSyncPathMappingResolver = (
+  scriptUrlPath: string,
+  pathMapping: PathMapping,
+  logger: ILogger,
+): string => {
   if (!scriptUrlPath || !scriptUrlPath.startsWith('/')) {
     return '';
   }
@@ -130,6 +130,18 @@ export const defaultPathMappingResolver: PathMappingResolver = async (
   }
 
   return '';
+};
+
+/**
+ * Default path mapping resolver. Applies the mapping by running a key
+ * check in memory.
+ */
+export const defaultPathMappingResolver: PathMappingResolver = async (
+  scriptUrlPath,
+  pathMapping,
+  logger,
+) => {
+  return defaultSyncPathMappingResolver(scriptUrlPath, pathMapping, logger);
 };
 
 /**
